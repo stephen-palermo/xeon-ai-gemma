@@ -15,7 +15,7 @@ source openvino_env/bin/activate
 pip install --upgrade pip
 pip install openvino-genai==2026.3.1
 pip install openvino==2026.3.1
-pip install huggingface_hub pillow numpy
+pip install huggingface_hub pillow numpy py-cpuinfo
 
 echo
 echo "Done. Activate the environment with:"
