@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# Set up the virtual environment needed to run simple_gemma.py.
+# Set up the virtual environment needed to run run_gemma.py.
 #
 # Usage:
 #   ./simple_setup.sh
 #   source openvino_env/bin/activate
-#   python3 simple_gemma.py
+#   python3 ./run_gemma.py
 
 set -euo pipefail
 
@@ -21,4 +21,4 @@ echo
 echo "Done. Activate the environment with:"
 echo "    source openvino_env/bin/activate"
 echo "Then run:"
-echo "    python3 simple_gemma.py"
+echo "    python3 ./run_gemma.py"
