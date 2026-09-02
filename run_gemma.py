@@ -17,6 +17,7 @@ Usage
     time python3 ./run_gemma.py                         # default prompt + image.png
     time python3 ./run_gemma.py --prompt "Describe the image."
     time python3 ./run_gemma.py --image photo.jpg
+    time python3 ./run_gemma.py --kv-cache-precision f16   # disable int8 KV cache
 """
 
 import argparse
@@ -53,19 +54,29 @@ def main():
                         help="Image file to ask about.")
     parser.add_argument("--device", default="CPU", help="OpenVINO device.")
     parser.add_argument("--max-new-tokens", type=int, default=100)
+    parser.add_argument("--kv-cache-precision", default="u8",
+                        choices=["u8", "f16", "f32"],
+                        help="KV cache precision. 'u8' quantizes the cache to "
+                             "int8 for faster decoding and lower memory.")
     args = parser.parse_args()
 
     print(f"OpenVINO base: {ov.__version__}")
     print(f"OpenVINO GenAI: {version('openvino-genai')}")
     print(f"AMX detected: {AMX_DETECTED}")
     print(f"AMX used: {AMX_DETECTED}")
+    print(f"KV cache precision: {args.kv_cache_precision}")
     print(f"Prompt: {args.prompt}")
     print(f"Image source: {args.image}")
 
     # Download the model (cached after the first run).
     model_path = snapshot_download(repo_id=MODEL_ID)
 
-    pipe = ov_genai.VLMPipeline(model_path, args.device)
+    # KV cache acceleration: quantizing the runtime KV cache to int8 (u8)
+    # lowers memory bandwidth and speeds up token generation. This is a
+    # plugin-side setting only; no model re-download or rebuild is required.
+    plugin_config = {"KV_CACHE_PRECISION": args.kv_cache_precision}
+
+    pipe = ov_genai.VLMPipeline(model_path, args.device, **plugin_config)
 
     config = ov_genai.GenerationConfig()
     config.max_new_tokens = args.max_new_tokens
