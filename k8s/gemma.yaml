@@ -1,0 +1,79 @@
+# Kubernetes manifests for run_gemma.py on an AMX-capable Xeon node.
+#
+# Apply:
+#   kubectl apply -f k8s/gemma.yaml
+#
+# The Job runs the one-shot script once and stops. The PVC persists the
+# Hugging Face model download and the OpenVINO compiled-model cache across
+# runs so pods start fast and don't re-download the ~7.6 GB model.
+#
+# Prerequisites:
+#   - Build & push the image, then set `image:` below.
+#       docker build -t <registry>/xeon-ai-gemma:latest .
+#       docker push  <registry>/xeon-ai-gemma:latest
+#   - Node Feature Discovery (NFD) installed so AMX nodes carry the
+#     feature.node.kubernetes.io/cpu-cpuid.AMXINT8=true label. If you label
+#     nodes manually instead, swap the affinity for a nodeSelector.
+#   - A HF token secret (only needed for gated models):
+#       kubectl create secret generic hf-token --from-literal=token=YOUR_HF_TOKEN
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gemma-cache
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  # storageClassName: <your-storage-class>   # uncomment/set if not default
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gemma-run
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app: gemma
+    spec:
+      restartPolicy: Never
+      # Schedule only onto CPUs that support Intel AMX int8 (Sapphire Rapids+).
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: feature.node.kubernetes.io/cpu-cpuid.AMXINT8
+                    operator: In
+                    values: ["true"]
+      containers:
+        - name: gemma
+          image: <registry>/xeon-ai-gemma:latest
+          imagePullPolicy: IfNotPresent
+          # Override the default prompt/flags as needed.
+          args: ["--prompt", "How many people in the image?", "--kv-cache-precision", "u8"]
+          env:
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token
+                  key: token
+                  optional: true
+          resources:
+            requests:
+              cpu: "8"
+              memory: "16Gi"
+            limits:
+              cpu: "16"
+              memory: "24Gi"
+          volumeMounts:
+            - name: cache
+              mountPath: /cache
+      volumes:
+        - name: cache
+          persistentVolumeClaim:
+            claimName: gemma-cache
