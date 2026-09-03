@@ -28,10 +28,14 @@ import time
 import cpuinfo
 
 # Enable Intel AMX only when the CPU reports the required AMX capabilities.
+# A pre-set ONEDNN_MAX_CPU_ISA is respected, so AMX can be disabled from the
+# environment, e.g. ONEDNN_MAX_CPU_ISA=avx512_core_bf16 python3 ./run_gemma.py
 cpu_flags = set(cpuinfo.get_cpu_info().get("flags", []))
 AMX_DETECTED = {"amx_tile", "amx_int8", "amx_bf16"}.issubset(cpu_flags)
-if AMX_DETECTED:
+ISA_OVERRIDE = os.environ.get("ONEDNN_MAX_CPU_ISA")
+if AMX_DETECTED and ISA_OVERRIDE is None:
     os.environ["ONEDNN_MAX_CPU_ISA"] = "avx512_core_amx"
+AMX_USED = AMX_DETECTED and "amx" in os.environ.get("ONEDNN_MAX_CPU_ISA", "").lower()
 
 import numpy as np
 import openvino as ov
@@ -71,7 +75,7 @@ def main():
     print(f"OpenVINO base: {ov.__version__}")
     print(f"OpenVINO GenAI: {version('openvino-genai')}")
     print(f"AMX detected: {AMX_DETECTED}")
-    print(f"AMX used: {AMX_DETECTED}")
+    print(f"AMX used: {AMX_USED}")
     print(f"KV cache precision: {args.kv_cache_precision}")
     print(f"Prompt: {args.prompt}")
     print(f"Image source: {args.image}")

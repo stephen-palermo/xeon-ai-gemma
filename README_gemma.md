@@ -38,7 +38,17 @@ python3 ./run_gemma.py --repeat 5 --max-new-tokens 512
 ```
 
 The model is downloaded from Hugging Face on the first run and cached for
-later runs.
+later runs. On subsequent runs, skip the Hugging Face update check (and the
+"Fetching 22 files" line) by enabling offline mode:
+
+```bash
+# Per run
+HF_HUB_OFFLINE=1 python3 ./run_gemma.py
+
+# Or for the whole shell session
+export HF_HUB_OFFLINE=1
+python3 ./run_gemma.py
+```
 
 ### Option B — With Docker
 
@@ -90,5 +100,19 @@ docker run --rm -it -e HF_TOKEN="your_token_here" \
 - **AMX acceleration:** the container and the venv both inherit the host CPU
   flags automatically. The script auto-detects AMX and prints
   `AMX used: True` on capable Xeon CPUs — no extra flags needed.
+- **Disable AMX:** set `ONEDNN_MAX_CPU_ISA` to a non-AMX instruction set before
+  running. The script respects a value you provide and will print
+  `AMX used: False`:
+
+  ```bash
+  # Drop to AVX-512 BF16 (no AMX)
+  ONEDNN_MAX_CPU_ISA=avx512_core_bf16 python3 ./run_gemma.py
+
+  # Combine with offline mode / timing
+  time ONEDNN_MAX_CPU_ISA=avx512_core_bf16 HF_HUB_OFFLINE=1 python3 ./run_gemma.py
+  ```
+
+  Use `avx512_core_vnni` or `avx512_core` to go lower. With Docker, pass it in
+  with `-e ONEDNN_MAX_CPU_ISA=avx512_core_bf16`.
 - **KV cache precision:** defaults to int8 (`u8`) for faster decoding and lower
   memory. Disable with `--kv-cache-precision f16`.
