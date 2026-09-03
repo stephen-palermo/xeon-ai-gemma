@@ -125,6 +125,14 @@ docker run --rm -it \
   format, giving lower memory use and faster inference than an FP16/FP32 build,
   while the OpenVINO runtime adds AMX/AVX-512 acceleration and the int8 KV-cache
   option your script uses.
+- **Why INT8 (or BF16), not FP16, for AMX:** Intel AMX on Xeon
+  (Sapphire/Emerald Rapids) has hardware tile units only for **INT8**
+  (`amx_int8`) and **BF16** (`amx_bf16`) — there is no FP16 tile unit (AMX-FP16
+  arrives with Granite Rapids). Note that BF16 (bfloat16, FP32-range exponent)
+  is a different format from IEEE FP16. So an FP16 or FP32 model falls back to
+  the slower AVX-512 vector path, while this INT8 model runs natively on the
+  AMX tiles — half the memory of FP16, a quarter of FP32, and higher matmul
+  throughput.
 - **AMX acceleration:** the container and the venv both inherit the host CPU
   flags automatically. The script auto-detects AMX and prints
   `AMX used: True` on capable Xeon CPUs — no extra flags needed.
