@@ -95,6 +95,30 @@ docker run --rm -it -e HF_TOKEN="your_token_here" \
   xeon-ai-gemma --image photo.jpg
 ```
 
+Enable offline mode inside the container (after the model is cached) by adding
+another `-e` flag. `HF_HUB_OFFLINE=1` skips the Hugging Face update check, so
+the model must already be in your mounted `./cache` from a previous online run:
+
+```bash
+docker run --rm -it \
+  -e HF_TOKEN="your_token_here" \
+  -e HF_HUB_OFFLINE="1" \
+  -v "$PWD/cache:/cache" \
+  -v "$PWD/photo.jpg:/app/photo.jpg" \
+  xeon-ai-gemma --image photo.jpg
+```
+
+Or run offline against the image baked into the container (`image.png`), with
+no extra file mount:
+
+```bash
+docker run --rm -it \
+  -e HF_TOKEN="your_token_here" \
+  -e HF_HUB_OFFLINE=1 \
+  -v "$PWD/cache:/cache" \
+  xeon-ai-gemma
+```
+
 ## Notes
 
 - **INT8 quantized + OpenVINO IR:** ships pre-quantized to int8 in OpenVINO
