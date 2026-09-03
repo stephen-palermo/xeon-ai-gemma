@@ -1,21 +1,94 @@
 # xeon-ai-gemma
 
+Run the [OpenVINO Gemma model](https://huggingface.co/OpenVINO/gemma-4-E4B-it-int8-ov)
+for image + text inference on Intel Xeon CPUs (with optional AMX acceleration)
+using OpenVINO GenAI.
+
+## Prerequisites
+
+1. Get access to the [OpenVINO Gemma model](https://huggingface.co/OpenVINO/gemma-4-E4B-it-int8-ov)
+   on Hugging Face and create a user access token.
+2. Have an image named `image.png` in this directory (the default), or supply
+   your own with `--image`.
+
 ## Quick start
 
-1. Get access to the [OpenVINO Gemma model](https://huggingface.co/OpenVINO/gemma-4-E4B-it-int8-ov) on Hugging Face and create a user access token.
-2. From this directory, run the following commands. Replace `your_token_here` with your Hugging Face token:
+### Option A — Without Docker (Python virtual environment)
+
+From this directory, run the following. Replace `your_token_here` with your
+Hugging Face token:
 
 ```bash
 export HF_TOKEN="your_token_here"
-bash setup.sh
+bash setup_gemma.sh
 source openvino_env/bin/activate
 python3 ./run_gemma.py
 ```
 
-The default command expects an image named `image.png` in this directory. To use another image or prompt:
+Use a different image or prompt:
 
 ```bash
 python3 ./run_gemma.py --image photo.jpg --prompt "Describe this image."
 ```
 
-The model is downloaded from Hugging Face on the first run and cached for later runs.
+Benchmark tokens/sec (the model is loaded once and generation is timed):
+
+```bash
+python3 ./run_gemma.py --repeat 5 --max-new-tokens 512
+```
+
+The model is downloaded from Hugging Face on the first run and cached for
+later runs.
+
+### Option B — With Docker
+
+The `Dockerfile` copies `image.png` into the image and sets
+`--cache-dir /cache/ov_cache` as part of the entrypoint. Mount a `cache`
+volume so the downloaded model and compiled graph persist between runs.
+
+```bash
+# 1. From this directory, make sure an image.png exists (the Dockerfile COPYs it)
+#    or copy your own:  cp /path/to/photo.jpg image.png
+
+# 2. Build the image
+docker build -t xeon-ai-gemma .
+
+# 3. Run it (pass your Hugging Face token and mount the cache volume)
+docker run --rm -it \
+  -e HF_TOKEN="your_token_here" \
+  -v "$PWD/cache:/cache" \
+  xeon-ai-gemma
+```
+
+The first run downloads the model into `./cache`; later runs reuse it.
+
+**Passing arguments** — anything after the image name is forwarded to
+`run_gemma.py`:
+
+```bash
+# Custom prompt / image
+docker run --rm -it -e HF_TOKEN="your_token_here" -v "$PWD/cache:/cache" \
+  xeon-ai-gemma --prompt "Describe this image." --image image.png
+
+# Benchmark tokens/sec (model loaded once, timed 5x)
+docker run --rm -it -e HF_TOKEN="your_token_here" -v "$PWD/cache:/cache" \
+  xeon-ai-gemma --repeat 5 --max-new-tokens 512
+```
+
+To use a different image at runtime, mount it in and reference the mounted
+path:
+
+```bash
+docker run --rm -it -e HF_TOKEN="your_token_here" \
+  -v "$PWD/cache:/cache" \
+  -v "$PWD/photo.jpg:/app/photo.jpg" \
+  xeon-ai-gemma --image photo.jpg
+```
+
+## Notes
+
+- **AMX acceleration:** the container and the venv both inherit the host CPU
+  flags automatically. The script auto-detects AMX and prints
+  `AMX used: True` on capable Xeon CPUs — no extra flags needed.
+- **KV cache precision:** defaults to int8 (`u8`) for faster decoding and lower
+  memory. Disable with `--kv-cache-precision f16`.
