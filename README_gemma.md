@@ -97,6 +97,10 @@ docker run --rm -it -e HF_TOKEN="your_token_here" \
 
 ## Notes
 
+- **INT8 quantized + OpenVINO IR:** ships pre-quantized to int8 in OpenVINO
+  format, giving lower memory use and faster inference than an FP16/FP32 build,
+  while the OpenVINO runtime adds AMX/AVX-512 acceleration and the int8 KV-cache
+  option your script uses.
 - **AMX acceleration:** the container and the venv both inherit the host CPU
   flags automatically. The script auto-detects AMX and prints
   `AMX used: True` on capable Xeon CPUs — no extra flags needed.
