@@ -26,6 +26,7 @@ Usage
 
 Models: OpenVINO/gemma-4-E4B-it-int8-ov (default, alias "e4b")
         OpenVINO/gemma-4-31B-it-int8-ov (alias "31b")
+        OpenVINO/gemma-4-E2B-it-int4-ov (alias "e2b")
 """
 
 import argparse
@@ -66,6 +67,7 @@ IMPORT_ELAPSED = time.perf_counter() - _IMPORT_START
 MODELS = {
     "e4b": "OpenVINO/gemma-4-E4B-it-int8-ov",
     "31b": "OpenVINO/gemma-4-31B-it-int8-ov",
+    "e2b": "OpenVINO/gemma-4-E2B-it-int4-ov",
 }
 MODEL_ID = MODELS["e4b"]
 

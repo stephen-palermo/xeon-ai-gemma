@@ -37,6 +37,7 @@ Face repo id is also accepted:
 ```bash
 python3 ./run_gemma.py --model e4b   # OpenVINO/gemma-4-E4B-it-int8-ov (default)
 python3 ./run_gemma.py --model 31b   # OpenVINO/gemma-4-31B-it-int8-ov (larger)
+python3 ./run_gemma.py --model e2b   # OpenVINO/gemma-4-E2B-it-int4-ov (smaller, int4)
 python3 ./run_gemma.py --model OpenVINO/some-other-repo   # any HF repo id
 ```
 
