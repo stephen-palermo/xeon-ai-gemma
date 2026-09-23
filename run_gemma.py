@@ -21,6 +21,7 @@ Usage
     python3 ./run_gemma.py --repeat 5 --max-new-tokens 512 # benchmark tokens/s
     python3 ./run_gemma.py --threads 32                    # cap inference threads
     python3 ./run_gemma.py --serve                         # load once, prompt loop
+    python3 ./run_gemma.py --http 8000                     # load once, HTTP server
 """
 
 import argparse
@@ -65,6 +66,76 @@ def load_image(path):
     return ov.Tensor(np.array(img)[None])
 
 
+def run_http_server(pipe, default_images, config, host, port):
+    """Serve the warm pipeline over HTTP so callers skip the per-process
+    import + 8 s compiled-model load. POST JSON {"prompt", optional "image"}
+    to /generate. Binds to localhost by default; this is a local dev tool
+    with no auth, so do not expose it on an untrusted network."""
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    lock = threading.Lock()  # VLMPipeline.generate is not re-entrant.
+
+    class Handler(BaseHTTPRequestHandler):
+        def _send(self, code, payload):
+            body = json.dumps(payload).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            if self.path != "/generate":
+                self._send(404, {"error": "use POST /generate"})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                data = json.loads(self.rfile.read(length) or b"{}")
+            except (ValueError, json.JSONDecodeError) as exc:
+                self._send(400, {"error": f"bad JSON: {exc}"})
+                return
+            prompt = data.get("prompt")
+            if not prompt:
+                self._send(400, {"error": "missing 'prompt'"})
+                return
+            images = default_images
+            if data.get("image"):
+                try:
+                    images = [load_image(data["image"])]
+                except Exception as exc:  # noqa: BLE001 - report to client
+                    self._send(400, {"error": f"image load failed: {exc}"})
+                    return
+            start = time.perf_counter()
+            with lock:
+                result = pipe.generate(prompt, images=images,
+                                       generation_config=config)
+            elapsed = time.perf_counter() - start
+            try:
+                n_tokens = result.perf_metrics.get_num_generated_tokens()
+            except Exception:  # noqa: BLE001 - metrics are best-effort
+                n_tokens = None
+            self._send(200, {
+                "text": str(result),
+                "tokens": n_tokens,
+                "seconds": round(elapsed, 3),
+                "tokens_per_s": round(n_tokens / elapsed, 1) if n_tokens else None,
+            })
+
+        def log_message(self, *args):
+            pass  # keep the console clean
+
+    server = ThreadingHTTPServer((host, port), Handler)
+    print(f"Serving on http://{host}:{port}  (POST /generate). Ctrl-C to stop.")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run gemma-4 with OpenVINO GenAI.")
     parser.add_argument("--prompt", default="How many people in the image?",
@@ -89,6 +160,13 @@ def main():
     parser.add_argument("--serve", action="store_true",
                         help="Keep the model loaded and read prompts from "
                              "stdin so import/compile cost is paid only once.")
+    parser.add_argument("--http", type=int, default=None, metavar="PORT",
+                        help="Keep the model loaded and serve POST /generate "
+                             "on this port (localhost). Paid once, then each "
+                             "request is decode-bound.")
+    parser.add_argument("--host", default="127.0.0.1",
+                        help="Bind address for --http. Defaults to localhost; "
+                             "there is no auth, so avoid untrusted networks.")
     args = parser.parse_args()
 
     print(f"OpenVINO base: {ov.__version__}")
@@ -133,6 +211,11 @@ def main():
 
     print(f"\n[startup] imports={IMPORT_ELAPSED:.2f}s  "
           f"model-load={t_download:.2f}s  pipeline-build={t_build:.2f}s")
+
+    # HTTP mode: pay import/compile once, then serve requests over the network.
+    if args.http:
+        run_http_server(pipe, images, config, args.host, args.http)
+        return
 
     # Serve mode: pay import/compile once, then answer prompts from stdin.
     if args.serve:
