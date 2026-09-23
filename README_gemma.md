@@ -36,14 +36,13 @@ Face repo id is also accepted:
 
 ```bash
 python3 ./run_gemma.py --model e4b   # OpenVINO/gemma-4-E4B-it-int8-ov (default)
-python3 ./run_gemma.py --model 31b   # OpenVINO/gemma-4-31B-it-int8-ov (larger)
 python3 ./run_gemma.py --model e2b   # OpenVINO/gemma-4-E2B-it-int4-ov (smaller, int4)
 python3 ./run_gemma.py --model OpenVINO/some-other-repo   # any HF repo id
 ```
 
-The `31b` model is much larger than the default `e4b`: expect a longer first
-download, higher RAM use, and a longer one-time model-load on each start. Its
-compiled graph is cached separately in `ov_cache/`.
+The `e2b` model is smaller and int4-quantized, so it uses less RAM and loads
+faster than the default `e4b`. Each model's compiled graph is cached
+separately in `ov_cache/`.
 
 Benchmark tokens/sec (the model is loaded once and generation is timed):
 
