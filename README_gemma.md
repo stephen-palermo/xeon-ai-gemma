@@ -37,6 +37,68 @@ Benchmark tokens/sec (the model is loaded once and generation is timed):
 python3 ./run_gemma.py --repeat 5 --max-new-tokens 512
 ```
 
+#### Server mode (load once, query many times)
+
+A fresh `python3 ./run_gemma.py` pays a one-time startup cost every run
+(imports plus an ~8 s load of the compiled ~8 GB model). To avoid paying it
+per request, keep the model resident and send it work. Two options:
+
+**Interactive stdin loop:**
+
+```bash
+python3 ./run_gemma.py --serve
+# prompt> how many people in the image?
+# (blank line or Ctrl-D to exit)
+```
+
+**HTTP server** — start it once, then query with `curl` or a browser:
+
+```bash
+# Start the server (loads the model once, then waits for requests).
+# Binds to 127.0.0.1:8000 by default; there is no auth, so keep it local.
+python3 ./run_gemma.py --http 8000
+```
+
+Query it from another terminal with `curl` (POST JSON to `/generate`):
+
+```bash
+# Uses the default image (image.png)
+curl -s localhost:8000/generate \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"how many people in the image?"}'
+
+# Override the image per request (path is read on the server)
+curl -s localhost:8000/generate \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"Describe this image.","image":"photo.jpg"}'
+```
+
+The response is JSON, e.g.:
+
+```json
+{"text":"There are **two** people in the image.","tokens":12,"seconds":1.9,"tokens_per_s":10.7}
+```
+
+From a **browser**, `/generate` only accepts POST, so use the DevTools console
+(F12) rather than the address bar:
+
+```js
+fetch("http://localhost:8000/generate", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ prompt: "how many people in the image?" })
+})
+  .then(r => r.json())
+  .then(console.log);
+```
+
+Expose it on your LAN with `--host 0.0.0.0` (only on a trusted network — the
+endpoint has no authentication):
+
+```bash
+python3 ./run_gemma.py --http 8000 --host 0.0.0.0
+```
+
 The model is downloaded from Hugging Face on the first run and cached for
 later runs. On subsequent runs, skip the Hugging Face update check (and the
 "Fetching 22 files" line) by enabling offline mode:
