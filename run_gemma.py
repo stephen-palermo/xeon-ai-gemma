@@ -22,6 +22,10 @@ Usage
     python3 ./run_gemma.py --threads 32                    # cap inference threads
     python3 ./run_gemma.py --serve                         # load once, prompt loop
     python3 ./run_gemma.py --http 8000                     # load once, HTTP server
+    python3 ./run_gemma.py --model 31b                     # larger 31B model
+
+Models: OpenVINO/gemma-4-E4B-it-int8-ov (default, alias "e4b")
+        OpenVINO/gemma-4-31B-it-int8-ov (alias "31b")
 """
 
 import argparse
@@ -57,7 +61,13 @@ from PIL import Image
 # Wall time spent importing heavy deps (openvino, genai, hf) + CPU probe.
 IMPORT_ELAPSED = time.perf_counter() - _IMPORT_START
 
-MODEL_ID = "OpenVINO/gemma-4-E4B-it-int8-ov"
+# Selectable models. Keys are convenience aliases for --model; any full
+# Hugging Face repo id is also accepted.
+MODELS = {
+    "e4b": "OpenVINO/gemma-4-E4B-it-int8-ov",
+    "31b": "OpenVINO/gemma-4-31B-it-int8-ov",
+}
+MODEL_ID = MODELS["e4b"]
 
 
 def load_image(path):
@@ -138,6 +148,10 @@ def run_http_server(pipe, default_images, config, host, port):
 
 def main():
     parser = argparse.ArgumentParser(description="Run gemma-4 with OpenVINO GenAI.")
+    parser.add_argument("--model", default=MODEL_ID,
+                        help="Model to run: an alias (" +
+                             ", ".join(MODELS) + ") or any Hugging Face repo "
+                             f"id. Default: {MODEL_ID}")
     parser.add_argument("--prompt", default="How many people in the image?",
                         help="Text prompt for the model.")
     parser.add_argument("--image", default="image.png",
@@ -169,11 +183,14 @@ def main():
                              "there is no auth, so avoid untrusted networks.")
     args = parser.parse_args()
 
+    model_id = MODELS.get(args.model, args.model)
+
     print(f"OpenVINO base: {ov.__version__}")
     print(f"OpenVINO GenAI: {version('openvino-genai')}")
     print(f"AMX detected: {AMX_DETECTED}")
     print(f"AMX used: {AMX_USED}")
     print(f"KV cache precision: {args.kv_cache_precision}")
+    print(f"Model: {model_id}")
     print(f"Prompt: {args.prompt}")
     print(f"Image source: {args.image}")
 
@@ -181,9 +198,9 @@ def main():
     # the network on the first run when the model is not yet present.
     t0 = time.perf_counter()
     try:
-        model_path = snapshot_download(repo_id=MODEL_ID, local_files_only=True)
+        model_path = snapshot_download(repo_id=model_id, local_files_only=True)
     except Exception:
-        model_path = snapshot_download(repo_id=MODEL_ID)
+        model_path = snapshot_download(repo_id=model_id)
     t_download = time.perf_counter() - t0
 
     # KV cache acceleration: quantizing the runtime KV cache to int8 (u8)
