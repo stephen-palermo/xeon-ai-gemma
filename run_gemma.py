@@ -27,6 +27,11 @@ import os
 import time
 import cpuinfo
 
+# Skip Hugging Face network chatter (telemetry, progress bars, Xet
+# reconstruction messages). The model is loaded from the local cache below.
+os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+
 # Enable Intel AMX only when the CPU reports the required AMX capabilities.
 # A pre-set ONEDNN_MAX_CPU_ISA is respected, so AMX can be disabled from the
 # environment, e.g. ONEDNN_MAX_CPU_ISA=avx512_core_bf16 python3 ./run_gemma.py
@@ -80,8 +85,12 @@ def main():
     print(f"Prompt: {args.prompt}")
     print(f"Image source: {args.image}")
 
-    # Download the model (cached after the first run).
-    model_path = snapshot_download(repo_id=MODEL_ID)
+    # Load from the local cache first (offline, no hub round-trip). Only hit
+    # the network on the first run when the model is not yet present.
+    try:
+        model_path = snapshot_download(repo_id=MODEL_ID, local_files_only=True)
+    except Exception:
+        model_path = snapshot_download(repo_id=MODEL_ID)
 
     # KV cache acceleration: quantizing the runtime KV cache to int8 (u8)
     # lowers memory bandwidth and speeds up token generation. This is a
@@ -103,8 +112,11 @@ def main():
     images = [load_image(args.image)]
 
     # Warm-up run (buffer allocation, first-token setup) excluded from timing.
+    # Only a couple of tokens are needed to trigger the one-time setup cost.
     if args.repeat > 1:
-        pipe.generate(args.prompt, images=images, generation_config=config)
+        warmup_config = ov_genai.GenerationConfig()
+        warmup_config.max_new_tokens = 2
+        pipe.generate(args.prompt, images=images, generation_config=warmup_config)
 
     times = []
     for i in range(args.repeat):
