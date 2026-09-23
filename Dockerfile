@@ -10,8 +10,8 @@ WORKDIR /app
 
 RUN pip install --upgrade pip && \
     pip install \
-        openvino-genai==2026.3.1 \
-        openvino==2026.3.1 \
+        openvino-genai==2026.4.0 \
+        openvino==2026.4.0 \
         huggingface_hub pillow numpy py-cpuinfo
 
 COPY run_gemma.py image.png ./
