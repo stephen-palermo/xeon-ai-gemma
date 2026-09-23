@@ -19,12 +19,17 @@ Usage
     time python3 ./run_gemma.py --image photo.jpg
     time python3 ./run_gemma.py --kv-cache-precision f16   # disable int8 KV cache
     python3 ./run_gemma.py --repeat 5 --max-new-tokens 512 # benchmark tokens/s
+    python3 ./run_gemma.py --threads 32                    # cap inference threads
+    python3 ./run_gemma.py --serve                         # load once, prompt loop
 """
 
 import argparse
-from importlib.metadata import version
 import os
 import time
+
+_IMPORT_START = time.perf_counter()
+
+from importlib.metadata import version
 import cpuinfo
 
 # Skip Hugging Face network chatter (telemetry, progress bars, Xet
@@ -47,6 +52,9 @@ import openvino as ov
 import openvino_genai as ov_genai
 from huggingface_hub import snapshot_download
 from PIL import Image
+
+# Wall time spent importing heavy deps (openvino, genai, hf) + CPU probe.
+IMPORT_ELAPSED = time.perf_counter() - _IMPORT_START
 
 MODEL_ID = "OpenVINO/gemma-4-E4B-it-int8-ov"
 
@@ -75,6 +83,12 @@ def main():
     parser.add_argument("--repeat", type=int, default=1,
                         help="Number of timed generations (model is loaded "
                              "once). Reports per-run time and tokens/sec.")
+    parser.add_argument("--threads", type=int, default=None,
+                        help="Cap OpenVINO inference threads (physical-core "
+                             "count often lowers latency and CPU thrash).")
+    parser.add_argument("--serve", action="store_true",
+                        help="Keep the model loaded and read prompts from "
+                             "stdin so import/compile cost is paid only once.")
     args = parser.parse_args()
 
     print(f"OpenVINO base: {ov.__version__}")
@@ -87,10 +101,12 @@ def main():
 
     # Load from the local cache first (offline, no hub round-trip). Only hit
     # the network on the first run when the model is not yet present.
+    t0 = time.perf_counter()
     try:
         model_path = snapshot_download(repo_id=MODEL_ID, local_files_only=True)
     except Exception:
         model_path = snapshot_download(repo_id=MODEL_ID)
+    t_download = time.perf_counter() - t0
 
     # KV cache acceleration: quantizing the runtime KV cache to int8 (u8)
     # lowers memory bandwidth and speeds up token generation. This is a
@@ -103,13 +119,43 @@ def main():
         # Optimize for single-request response time rather than throughput.
         "PERFORMANCE_HINT": "LATENCY",
     }
+    if args.threads is not None:
+        plugin_config["INFERENCE_NUM_THREADS"] = args.threads
 
+    t0 = time.perf_counter()
     pipe = ov_genai.VLMPipeline(model_path, args.device, **plugin_config)
+    t_build = time.perf_counter() - t0
 
     config = ov_genai.GenerationConfig()
     config.max_new_tokens = args.max_new_tokens
 
     images = [load_image(args.image)]
+
+    print(f"\n[startup] imports={IMPORT_ELAPSED:.2f}s  "
+          f"model-load={t_download:.2f}s  pipeline-build={t_build:.2f}s")
+
+    # Serve mode: pay import/compile once, then answer prompts from stdin.
+    if args.serve:
+        print("Ready. Enter a prompt (blank line or Ctrl-D to exit).")
+        while True:
+            try:
+                prompt = input("prompt> ").strip()
+            except EOFError:
+                break
+            if not prompt:
+                break
+            start = time.perf_counter()
+            result = pipe.generate(prompt, images=images,
+                                   generation_config=config)
+            elapsed = time.perf_counter() - start
+            try:
+                n_tokens = result.perf_metrics.get_num_generated_tokens()
+            except Exception:
+                n_tokens = None
+            tok_per_s = f"{n_tokens / elapsed:.1f}" if n_tokens else "n/a"
+            print(f"{result}\n[{elapsed:.2f}s  tokens={n_tokens}  "
+                  f"tokens/s={tok_per_s}]")
+        return
 
     # Warm-up run (buffer allocation, first-token setup) excluded from timing.
     # Only a couple of tokens are needed to trigger the one-time setup cost.
